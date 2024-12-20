@@ -1,0 +1,160 @@
+import pytest # Import all neceseary libaries
+import pandas as pd
+from unittest.mock import MagicMock, patch
+from main import DataCleaning, SentimentAnalysis, Scrape
+import os
+### Create a Mock Data Frame ###
+# Create a fixture to use as a Mock Pandas Data Frame
+@pytest.fixture
+def mock_data_frame():
+    # Returns Pandas DF
+    return pd.DataFrame({
+        'User': ['User1', 'User2'],
+        'Date Created': ['2023-09-01', '2023-09-02'],
+        'Number of Likes': [5, 10],
+        'Source of Tweet': ['Twitter Web App', 'Twitter for iPhone'],
+        'Tweet': ['I love this product!', 'This product is terrible...']
+    })
+# Cleaned Mock Pandas DF
+@pytest.fixture
+def mock_cleaned_data_frame():
+    # Returns Pandas DF
+    return pd.DataFrame({
+        'User': ['User1', 'User2'],
+        'Date Created': ['2023-09-01', '2023-09-02'],
+        'Number of Likes': [5, 10],
+        'Source of Tweet': ['Twitter Web App', 'Twitter for iPhone'],
+        'Cleaned Tweet': ['love product', 'product terrible'],
+        'Sentiment': [0.5, -0.7],
+        'Sentiment Category': ['Positive', 'Negative']
+    })
+###  Data Cleaning Tests ###
+
+# Test DataCleaning() Class for Text Cleaner
+def test_clean_text():
+    # Intialize Class
+    cleaner = DataCleaning()
+    # Test case setup
+    test_1 = 'I love coding! https://example.com'
+    result_1 = 'love coding'
+    # Test regular text
+    assert cleaner.clean_text(test_1) == result_1
+    # Test Empty String
+    assert cleaner.clean_text('') == ''
+    # Test only Stop Words
+    test_2 = 'and is the of'
+    assert cleaner.clean_text(test_2) == ''
+
+# Test DataCleaning function for Data frame
+def test_clean_data_frame(mock_data_frame):
+    # Intiqalize Class
+    cleaner = DataCleaning()
+    # Clean Data Frame
+    cleaned_df = cleaner.clean_data_frame(mock_data_frame)
+
+    # Check if 'Cleaned Tweet' column exists
+    assert 'Cleaned Tweet' in cleaned_df.columns
+
+    # Verify the text was cleaned correctly
+    assert cleaned_df['Cleaned Tweet'].iloc[0] == 'love product'
+    assert cleaned_df['Cleaned Tweet'].iloc[1] == 'product terrible'
+
+### Sentimental Analysis and Plotting Tests ###
+
+# Test SentimentalAnalysis class
+def test_analyze_sentiment():
+    # Intialize Class
+    analyzer = SentimentAnalysis()
+
+    # Positive sentiment
+    positive_text = "I absolutely love this!"
+    assert analyzer.analyze_sentiment(positive_text) > 0
+
+    # Negative sentiment
+    negative_text = "This is terrible and I hate it."
+    assert analyzer.analyze_sentiment(negative_text) < 0
+
+    # Neutral sentiment
+    neutral_text = "This is a product."
+    assert analyzer.analyze_sentiment(neutral_text) == 0
+# Test SentimentalAnalysis Categorization of Text
+def test_categorize_sentiment():
+    #Intialize Class
+    analyzer = SentimentAnalysis()
+
+    # Test positive, negative, and neutral categories
+    assert analyzer.categorize_sentiment(0.5) == 'Positive'
+    assert analyzer.categorize_sentiment(-0.5) == 'Negative'
+    assert analyzer.categorize_sentiment(0.0) == 'Neutral'
+# Test that Sentimental analysis is in Dataframe
+def test_analyze_data_frame(mock_data_frame):
+    # Intialize DataCleanig Class
+    cleaner = DataCleaning()
+    # Clean mock_data_frame
+    cleaned_df = cleaner.clean_data_frame(mock_data_frame)
+    # Intialize SentimentalAnalysis Class
+    analyzer = SentimentAnalysis()
+    # Perform Sentimental Analysis
+    analyzed_df = analyzer.analyze_data_frame(cleaned_df)
+
+    # Check if 'Sentiment' and 'Sentiment Category' columns exist
+    assert 'Sentiment' in analyzed_df.columns
+    assert 'Sentiment Category' in analyzed_df.columns
+
+    # Ensure that sentiment is calculated correctly
+    assert analyzed_df['Sentiment Category'].iloc[0] == 'Positive'
+    assert analyzed_df['Sentiment Category'].iloc[1] == 'Negative'
+# Mock decorator for savefig and Test if plotting and File creation works
+@patch('matplotlib.pyplot.savefig')
+def test_plot_sentiment(mock_savefig, mock_cleaned_data_frame):
+    # Intialize Class
+    analyzer = SentimentAnalysis()
+    # Plot Sentimenal Analysis
+    analyzer.plot_sentiment(mock_cleaned_data_frame)
+
+    # Verify that savefig was called twice (for histogram and bar chart)
+    assert mock_savefig.call_count == 2
+
+    # Check that the correct filenames were passed to savefig
+    mock_savefig.assert_any_call('sentiment_histogram.png')
+    mock_savefig.assert_any_call('sentiment_bar_chart.png')
+
+### Scrape Tests ###
+
+# Mock the Tweepy API authentication
+@patch('tweepy.API')
+def test_twitter_auth(mock_tweepy_api):
+    # Intialize Class
+    scraper = Scrape("test_product")
+
+    # Mock the API return value
+    mock_api = mock_tweepy_api.return_value
+    assert scraper.twitter_auth() == mock_api
+
+# Mock Twitter search to avoid real API calls
+@patch('tweepy.API.search_tweets')
+def test_twitter_search(mock_search_tweets):
+    scraper = Scrape("test_product")
+    scraper.twitter_auth()
+
+    # Mock the returned tweets from the API
+    mock_tweet = MagicMock() # Create Mock Object
+    # Creation of Mock Tweet
+    mock_tweet.user.name = 'User1'
+    mock_tweet.created_at = '2023-09-01'
+    mock_tweet.favorite_count = 10
+    mock_tweet.source = 'Twitter Web App'
+    mock_tweet.full_text = 'Great product!'
+    mock_search_tweets.return_value = [mock_tweet]
+
+    result_df = scraper.twitter_search(1)
+
+    # Check that the dataframe has one row and correct data
+    assert len(result_df) == 1
+    assert result_df['User'].iloc[0] == 'User1'
+    assert result_df['Tweet'].iloc[0] == 'Great product!'
+
+### Main function to run all tests ###
+if __name__ == "__main__":
+    # Run all tests in this file
+    pytest.main()
